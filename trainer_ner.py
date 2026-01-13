@@ -1,4 +1,3 @@
-
 import os
 from argparse import Namespace
 import torch.types
@@ -25,7 +24,7 @@ class Trainer:
             wandb.define_metric("f1", summary="max")
         self.device = self._configure_device()
         self.dataset_path = os.path.join(os.getcwd(), 'datasets', self.args.dataset)
-        self.label_set = LabelSet1D(self.args.dataset)
+        self.label_set = LabelSet1D()
         if self.args.num_classes != len(self.label_set):
             print(
                 f"the number of classes({self.args.num_classes}) you input is not equal from the statistic of dataset({len(self.label_set)})")
@@ -54,12 +53,13 @@ class Trainer:
         if self.args.logger == "wandb":
             wandb.watch(self.model, log_freq=1000)
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.backbone)
-        self.collate_fn = Collator1D(self.tokenizer)
+        self.collate_fn = Collator1D(self.tokenizer, self.label_set)
 
-        self.train_dataloader = self._get_dataloader('train', self.args.batch_size)
-        self.dev_dataloader = self._get_dataloader('dev', self.args.batch_size)
-        self.test_dataloader = self._get_dataloader('test', self.args.batch_size)
-        self.steps = self.args.max_steps
+        # self.train_dataloader = self._get_dataloader('train', self.args.batch_size)
+        # self.dev_dataloader = self._get_dataloader('dev', self.args.batch_size)
+        # self.test_dataloader = self._get_dataloader('test', self.args.batch_size)
+        # self.steps = self.args.max_steps
+        self._configure_dataloaders()
 
         self.optimizer, self.lr_scheduler = \
             self._configure_optimizer_and_scheduler(self.args.optimizer_type, self.args.lr_scheduler_type)
@@ -74,6 +74,12 @@ class Trainer:
                                 shuffle=True if mode == "train" else False,
                                 collate_fn=self.collate_fn)
         return dataloader
+    
+    def _configure_dataloaders(self):
+        self.train_dataloader = self._get_dataloader('train', self.args.batch_size)
+        self.dev_dataloader = self._get_dataloader('dev', self.args.batch_size)
+        self.test_dataloader = self._get_dataloader('test', self.args.batch_size)
+        self.steps = self.args.max_steps
 
     def _print_hyperparameters(self):
         hparams = PrettyTable()

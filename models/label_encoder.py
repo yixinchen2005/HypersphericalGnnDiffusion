@@ -84,6 +84,30 @@ class HeteroLabelEmbeddingGNN(nn.Module):
             z = F.normalize(z, p=2, dim=-1) 
         return z
     
+    # def get_sequence_signal(self, label_ids, seq_edges):
+    #     """
+    #     label_ids: The original label indices [Batch, Seq]
+    #     seq_edges: A hetero edge_index_dict built for THIS sentence
+    #     """
+    #     self.eval()
+    #     with torch.no_grad():
+    #         # 1. Get the base node embeddings from the GNN
+    #         # This uses the same transition logic the model already knows
+    #         node_embs = self.forward(seq_edges) # [13, hidden_dim]
+            
+    #         # 2. Map the label_ids to their GNN-contextualized vectors
+    #         # If label_ids[i] is 0 (O), it gets node_embs[0]
+    #         # BUT: Since node_embs was computed with local sequence edges, 
+    #         # node_embs[0] now contains 'hints' from its actual neighbors in the sentence.
+    #         z = self.to_diffusion(node_embs)
+    #         z = F.normalize(z, p=2, dim=-1) # Project to 8D shell
+            
+    #         # 3. Gather the sequence-length signal
+    #         # [Seq, 8]
+    #         seq_signal = z[label_ids] 
+            
+    #     return seq_signal
+    
 # --------------------- Training utilities ---------------------
 
 def loss_edge_reconstruction(model, edge_index_dict, device, neg_ratio=1):

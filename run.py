@@ -1,4 +1,5 @@
 from trainer_ner import Trainer as Trainer_ner
+from trainer_led import LEDTrainer as Trainer_led
 from options import get_parser
 import os
 
@@ -10,6 +11,8 @@ def main():
         os.mkdir(args.output_dir)
     if args.base == 'ner':
         trainer = Trainer_ner(args)
+    elif args.base == 'led':
+        trainer = Trainer_led(args)
 
     trainer.train()
     trainer.save()

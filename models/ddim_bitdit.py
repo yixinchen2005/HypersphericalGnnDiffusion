@@ -134,7 +134,7 @@ class BitDit(nn.Module):
         self.scale = snr_scale
 
         # self.bits = torch.ceil(torch.log2(torch.tensor(num_labels))).long()
-        self.bits = torch.tensor([8])
+        self.bits = torch.tensor(8, device=self.device)
         self.loss_type = loss_type
         self.model = DiT(in_channels=self.bits.item(),
                          hidden_size=dim_model,
@@ -287,7 +287,7 @@ class BitDit(nn.Module):
         return pred_bits, x_start
 
     @torch.no_grad()
-    def p_sample_loop(self, shape, bert_features, attention_mask):
+    def p_sample_loop(self, shape, bert_features, attention_mask, x_self_cond=None):
         batch, device = shape[0], self.betas.device
 
         bit_seq = torch.randn(shape, device=device)
@@ -295,13 +295,16 @@ class BitDit(nn.Module):
         x_start = None
 
         for t in reversed(range(0, self.num_timesteps)):
-            self_cond = x_start if self.self_condition else None
-            bit_seq, x_start = self.p_sample(bit_seq, t, bert_features, attention_mask, self_cond)
+            if x_self_cond is not None:
+                current_cond = x_self_cond
+            else:
+                current_cond = x_start if self.self_condition else None
+            bit_seq, x_start = self.p_sample(bit_seq, t, bert_features, attention_mask, current_cond)
 
         return bit_seq
 
     @torch.no_grad()
-    def ddim_sample(self, shape, bert_features, attention_mask, average=True):
+    def ddim_sample(self, shape, bert_features, attention_mask, x_self_cond=None, average=True):
         batch, device, total_timesteps, sampling_timesteps, eta, objective =\
             shape[0], self.betas.device, self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective
 
@@ -320,9 +323,12 @@ class BitDit(nn.Module):
 
         for time, time_next in time_pairs:
             time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
-            self_cond = x_start if self.self_condition else None
+            if x_self_cond is not None:
+                current_cond = x_self_cond
+            else:
+                current_cond = x_start if self.self_condition else None
             pred_noise, x_start, *_ = self.model_predictions(bit_seq, time_cond, bert_features,
-                                                             attention_mask, self_cond, clip_x_start=True)
+                                                             attention_mask, current_cond, clip_x_start=True)
             
             if time_next < 0:
                 bit_seq = x_start
@@ -346,12 +352,12 @@ class BitDit(nn.Module):
         return bit_seq, batch_res
 
     @torch.no_grad()
-    def sample(self, shape, bert_features, attention_mask):
+    def sample(self, shape, bert_features, attention_mask, x_self_cond=None):
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-        return sample_fn(shape, bert_features, attention_mask)
+        return sample_fn(shape, bert_features, attention_mask, x_self_cond=x_self_cond)
 
     def forward(self, input_ids: torch.tensor, attention_mask: torch.tensor, seq_labels: torch.tensor,
-                words2pieces: torch.tensor = None, ensemble: bool = False):
+                cond_labels: torch.tensor = None, words2pieces: torch.tensor = None, ensemble: bool = False):
         """
 
         Args:
@@ -364,8 +370,13 @@ class BitDit(nn.Module):
 
         """
         # feature extraction: [bsz, len_piece, d_model]
-        label_mask = (seq_labels != -100).long()
+        label_mask = (seq_labels != -100).long() if seq_labels is not None else attention_mask
         bert_output = self.backbone(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+
+        # embeddings of the conditional labels
+        cond_emb = None
+        if cond_labels is not None:
+            cond_emb = self.label_codebook[cond_labels]
 
         if self.add_lstm:
             min_value = torch.min(bert_output).item()
@@ -385,11 +396,12 @@ class BitDit(nn.Module):
 
         if not self.training:
             shape = (*features.shape[:2], self.bits.item())
-            results = self.sample(shape, features, label_mask)
+            results = self.sample(shape, features, label_mask, x_self_cond=cond_emb)
             bit_seq, path_x = results
             # path_x = torch.stack([bits_to_decimal(r, self.bits.item()) for r in path_x], dim=1)
             # results = bits_to_decimal(bit_seq, self.bits.item())
 
+            # HyperSpherical GNN Encoding #
             results = self.decode_labels(bit_seq)
             
             return results, path_x
@@ -405,13 +417,16 @@ class BitDit(nn.Module):
             bits_seq_labels = self.label_codebook[seq_labels]
             noise_bits_seq_labels, ts, noise = self.prepare_targets(bits_seq_labels)
 
-            self_cond = None
-            if random() < 0.5:
+            if cond_emb is not None:
+                x_cond = cond_emb
+            elif self.self_condition and random() < 0.5:
                 with torch.no_grad():
-                    self_cond = self.model_predictions(noise_bits_seq_labels, ts, features, label_mask).pred_x_start
-                    self_cond.detach_()
+                    x_cond = self.model_predictions(noise_bits_seq_labels, ts, features, label_mask).pred_x_start
+                    x_cond.detach_()
+            else:
+                x_cond = None
 
-            pred = self.model(noise_bits_seq_labels, ts, features, label_mask, self_cond)
+            pred = self.model(noise_bits_seq_labels, ts, features, label_mask, x_cond)
 
             targets = bits_seq_labels
             targets_mask = label_mask.unsqueeze(dim=-1).expand(-1, -1, self.bits.item())

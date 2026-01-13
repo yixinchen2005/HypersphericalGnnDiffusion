@@ -1,0 +1,56 @@
+# ===========================================
+# Configuration: twitter2015.bert-large-cased.led.yaml
+# ===========================================
+
+# Base setup
+base: led
+config_file: twitter2015.bert-large-cased.led.yaml
+dataset: twitter2015
+num_classes: 13
+resume_path: checkpoints/last_0.8114052953156823_15epoch.pt
+
+# Model backbone and architecture
+backbone: /home/yixin/workspace/huggingface/bert-large-cased
+time_steps: 1000
+sampling_steps: 10
+ddim_sampling_eta: 1.0
+self_condition: false
+snr_scale: 0.1
+dim_model: 1024
+encoder_depth: 3     # depth of transformer encoder
+decoder_depth: 6     # depth of transformer decoder
+dim_time: 256
+objective: pred_x0
+noise_schedule: linear
+loss_type: cosine
+add_lstm: false
+freeze_bert: false
+decode_mode: bi
+patch_size: 4
+depth: 12
+max_length: 256
+network_architecture: transformer
+ensemble: false
+
+# Training configuration
+logger: None
+output_dir: output
+model_path: model.pt
+use_gpu: true
+gpus: 1
+max_steps: 250000
+max_epochs: 15
+batch_size: 16
+num_workers: 6     # num_workers for dataloader
+warmup_steps: 0
+warmup_ratio: 0.01
+optimizer_type: AdamW
+lr_scheduler_type: linear
+num_cycles: 1
+lr_bert: 5e-5
+lr_other: 5e-5
+weight_decay: 1e-5
+accumulation_steps: 4
+
+# Testing options
+test_path: false    # corresponds to 'action="store_true"'
